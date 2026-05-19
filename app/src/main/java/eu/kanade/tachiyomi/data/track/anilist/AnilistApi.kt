@@ -320,6 +320,105 @@ class AnilistApi(val client: OkHttpClient, interceptor: AnilistInterceptor) {
         return findLibManga(track, userId) ?: throw Exception("Could not find manga")
     }
 
+    suspend fun getUserMangaList(userId: Int): List<Track> {
+        return withIOContext {
+            val query = $$"""
+            |query ($id: Int!, $page: Int!) {
+                |Page(page: $page, perPage: $LIST_PAGE_SIZE) {
+                    |pageInfo {
+                        |currentPage
+                        |hasNextPage
+                    |}
+                    |mediaList(userId: $id, type: MANGA) {
+                        |id
+                        |status
+                        |scoreRaw: score(format: POINT_100)
+                        |progress
+                        |private
+                        |startedAt {
+                            |year
+                            |month
+                            |day
+                        |}
+                        |completedAt {
+                            |year
+                            |month
+                            |day
+                        |}
+                        |media {
+                            |id
+                            |title {
+                                |userPreferred
+                            |}
+                            |coverImage {
+                                |large
+                            |}
+                            |format
+                            |status
+                            |chapters
+                            |description
+                            |startDate {
+                                |year
+                                |month
+                                |day
+                            |}
+                            |averageScore
+                            |staff {
+                                |edges {
+                                    |role
+                                    |id
+                                    |node {
+                                        |name {
+                                            |full
+                                            |userPreferred
+                                            |native
+                                        |}
+                                    |}
+                                |}
+                            |}
+                        |}
+                    |}
+                |}
+            |}
+            |
+            """.trimMargin()
+            val results = mutableListOf<Track>()
+            var page = 1
+            var hasNextPage: Boolean
+            do {
+                val payload = buildJsonObject {
+                    put("query", query)
+                    putJsonObject("variables") {
+                        put("id", userId)
+                        put("page", page)
+                    }
+                }
+                val response = with(json) {
+                    authClient.newCall(
+                        POST(
+                            API_URL,
+                            body = payload.toString().toRequestBody(jsonMime),
+                        ),
+                    )
+                        .awaitSuccess()
+                        // KMK -->
+                        .also { it.parseALError() }
+                        // KMK <--
+                        .parseAs<ALUserListMangaQueryResult>()
+                }
+                val mediaList = response.data.page.mediaList
+                results += mediaList.map { item ->
+                    item.toALUserManga()
+                        .toTrack()
+                        .apply { tracking_url = mangaUrl(remote_id) }
+                }
+                hasNextPage = response.data.page.pageInfo?.hasNextPage == true
+                page++
+            } while (hasNextPage)
+            results
+        }
+    }
+
     fun createOAuth(token: String): ALOAuth {
         return ALOAuth(token, "Bearer", System.currentTimeMillis() + 31536000000, 31536000000)
     }
@@ -507,6 +606,7 @@ class AnilistApi(val client: OkHttpClient, interceptor: AnilistInterceptor) {
         private const val API_URL = "https://graphql.anilist.co/"
         private const val BASE_URL = "https://anilist.co/api/v2/"
         private const val BASE_MANGA_URL = "https://anilist.co/manga/"
+        private const val LIST_PAGE_SIZE = 50
 
         fun mangaUrl(mediaId: Long): String {
             return BASE_MANGA_URL + mediaId

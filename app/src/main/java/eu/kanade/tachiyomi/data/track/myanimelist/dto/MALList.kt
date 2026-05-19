@@ -24,3 +24,24 @@ data class MALListItemStatus(
     @SerialName("finish_date")
     val finishDate: String?,
 )
+
+@Serializable
+data class MALUserListResult(
+    val data: List<MALUserListEntry>,
+    val paging: MALSearchPaging,
+)
+
+@Serializable
+data class MALUserListEntry(
+    val node: MALUserListManga,
+    @SerialName("list_status")
+    val listStatus: MALListItemStatus,
+)
+
+@Serializable
+data class MALUserListManga(
+    val id: Long,
+    val title: String,
+    @SerialName("num_chapters")
+    val numChapters: Long,
+)
